@@ -1,6 +1,8 @@
 # Soup's Valorant Replay Tool
 
 A tool for viewing any replay of the same game mode in your client.
+# WARNING! 
+This tool has not been aproved by Riot Games and could lead to your account being banned for using it. Most likely this is not the case since its a simple swap of files but just be warned!
 
 ## For Users
 
