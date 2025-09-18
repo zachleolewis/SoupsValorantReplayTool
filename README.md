@@ -21,7 +21,7 @@ This tool has not been aproved by Riot Games and could lead to your account bein
 - Update Readme.md to be more helpful for users and developers.
 - Add more visual GUI elements for better UX
 - Look into possibly integrating a public repo for replay files for people to share replays easily.
-- 
+
 ## For Developers
 
 ### Installation
