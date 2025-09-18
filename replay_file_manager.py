@@ -14,6 +14,7 @@ from datetime import datetime
 import requests
 from requests.auth import HTTPBasicAuth
 import base64
+from region_config import region_config
 
 class ReplayFileManager:
     def __init__(self):
@@ -150,6 +151,12 @@ class SessionMonitor:
             'error': []
         }
     
+    def update_region(self):
+        """Update region-specific endpoints after region change"""
+        if self.credentials:
+            self.credentials['game_api_base'] = region_config.get_glz_api_base()
+            print(f"Updated session monitor to use GLZ endpoint: {self.credentials['game_api_base']}")
+    
     def _get_credentials(self) -> Optional[Dict]:
         """Get VALORANT API credentials from lockfile"""
         try:
@@ -195,7 +202,7 @@ class SessionMonitor:
             return {
                 'base_url': base_url,
                 'password': password,
-                'game_api_base': 'https://glz-na-1.na.a.pvp.net',
+                'game_api_base': region_config.get_glz_api_base(),  # Use region-specific GLZ endpoint
                 'access_token': token_data['accessToken'],
                 'entitlements_token': token_data['token'],
                 'client_version': client_version,

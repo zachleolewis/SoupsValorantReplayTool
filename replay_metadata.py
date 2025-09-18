@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import urllib3
+from region_config import region_config
 
 # Disable SSL warnings for local API calls
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -23,11 +24,16 @@ class ReplayMetadataFetcher:
         self.auth_token = None
         self.entitlements_token = None
         self.user_id = None
-        self.region = "na"  # Default region
+        self.region = region_config.current_region  # Use region from config
         
         if self.lockfile_path:
             self._parse_lockfile()
             self._get_auth_tokens()
+    
+    def update_region(self, new_region: str):
+        """Update the region for API calls"""
+        self.region = new_region
+        print(f"Updated metadata fetcher region to: {new_region}")
     
     def _find_lockfile(self) -> Optional[str]:
         """Find VALORANT lockfile"""
@@ -121,8 +127,9 @@ class ReplayMetadataFetcher:
             return None
         
         try:
-            # Build URL
-            url = f"https://pd.{self.region}.a.pvp.net/match-history/v1/history/{self.user_id}"
+            # Build URL using region config
+            pd_base = region_config.get_pd_api_base(self.region)
+            url = f"{pd_base}/match-history/v1/history/{self.user_id}"
             params: Dict[str, Any] = {
                 'startIndex': start_index,
                 'endIndex': end_index
@@ -157,7 +164,9 @@ class ReplayMetadataFetcher:
             return None
         
         try:
-            url = f"https://pd.{self.region}.a.pvp.net/match-details/v1/matches/{match_id}"
+            # Build URL using region config
+            pd_base = region_config.get_pd_api_base(self.region)
+            url = f"{pd_base}/match-details/v1/matches/{match_id}"
             
             headers = {
                 'Authorization': f'Bearer {self.auth_token}',
@@ -185,8 +194,9 @@ class ReplayMetadataFetcher:
             return None
         
         try:
-            # Use the match history query API with summary info type
-            url = f"https://usw2.pp.sgp.pvp.net/match-history-query/v3/product/valorant/matchId/{match_id}/infoType/summary"
+            # Use the match history query API with summary info type - region-specific
+            match_history_base = region_config.get_match_history_api_base(self.region)
+            url = f"{match_history_base}/match-history-query/v3/product/valorant/matchId/{match_id}/infoType/summary"
             
             headers = {
                 'Authorization': f'Bearer {self.auth_token}',

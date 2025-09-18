@@ -13,6 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from replay_file_manager import ReplayFileManager, SessionMonitor
 from replay_metadata import ReplayMetadataFetcher
+from region_config import region_config
 
 # Install sv-ttk if not available
 try:
@@ -260,6 +261,7 @@ class ModernReplayInjectorGUI:
         self.notebook.pack(fill="both", expand=True, pady=(15, 0))
         
         # Setup tabs with simplified styling
+        self.setup_modern_region_tab()
         self.setup_modern_selection_tab()
         self.setup_modern_control_tab()
         self.setup_modern_log_tab()
@@ -317,6 +319,206 @@ class ModernReplayInjectorGUI:
         discord_label.pack(side="left")
         discord_label.bind("<Button-1>", lambda e: self.open_discord())
         
+    def setup_modern_region_tab(self):
+        """Setup modern region selection tab"""
+        region_frame = ttk.Frame(self.notebook)
+        self.notebook.add(region_frame, text="🌍 Region Settings")
+        
+        # Main container
+        main_container = tk.Frame(region_frame, bg='#202020')
+        main_container.pack(fill="both", expand=True, padx=30, pady=30)
+        
+        # Region selection card
+        region_card = self.create_modern_card(main_container, "🌍 VALORANT Region Configuration")
+        region_card.pack(fill="x", pady=(0, 20))
+        
+        # Instructions
+        instruction_text = ("Select your VALORANT region to ensure proper API connectivity. "
+                          "This setting affects replay metadata loading and match detection. "
+                          "If you're unsure, try 'Auto-Detect' or select the region where your VALORANT account was created. "
+                          "Note: Region setting is temporary and will reset to North America when you restart the app.")
+        
+        instruction_frame = tk.Frame(region_card, bg='#2d2d30')
+        instruction_frame.pack(fill="x", padx=25, pady=(0, 25))
+        
+        instruction_label = tk.Label(
+            instruction_frame,
+            text=instruction_text,
+            bg='#2d2d30',
+            fg=self.colors['text_secondary'],
+            font=('Segoe UI', 11),
+            wraplength=800,
+            justify="left"
+        )
+        instruction_label.pack(anchor="w")
+        
+        # Current region display
+        current_region_frame = tk.Frame(region_card, bg='#2d2d30')
+        current_region_frame.pack(fill="x", padx=25, pady=(0, 20))
+        
+        current_label = tk.Label(
+            current_region_frame,
+            text="Current Region:",
+            bg='#2d2d30',
+            fg=self.colors['text_primary'],
+            font=('Segoe UI', 12, 'bold')
+        )
+        current_label.pack(side="left")
+        
+        self.current_region_display = tk.Label(
+            current_region_frame,
+            text=f"{region_config.get_region_display_name()} ({region_config.current_region.upper()})",
+            bg='#2d2d30',
+            fg=self.colors['accent'],
+            font=('Segoe UI', 12, 'bold')
+        )
+        self.current_region_display.pack(side="left", padx=(10, 0))
+        
+        # Region selection
+        selection_frame = tk.Frame(region_card, bg='#2d2d30')
+        selection_frame.pack(fill="x", padx=25, pady=(0, 25))
+        
+        selection_label = tk.Label(
+            selection_frame,
+            text="🌎 Select Region:",
+            bg='#2d2d30',
+            fg=self.colors['text_primary'],
+            font=('Segoe UI', 11, 'bold')
+        )
+        selection_label.pack(anchor="w", pady=(0, 10))
+        
+        # Region dropdown
+        region_row = tk.Frame(selection_frame, bg='#2d2d30')
+        region_row.pack(fill="x")
+        
+        self.region_var = tk.StringVar(value=region_config.current_region)
+        
+        # Create region choices with display names
+        region_choices = [f"{name} ({code.upper()})" for code, name in region_config.AVAILABLE_REGIONS]
+        current_choice = f"{region_config.get_region_display_name()} ({region_config.current_region.upper()})"
+        
+        self.region_combo = ttk.Combobox(
+            region_row,
+            values=region_choices,
+            state="readonly",
+            font=('Segoe UI', 11),
+            width=25
+        )
+        self.region_combo.set(current_choice)
+        self.region_combo.pack(side="left", padx=(0, 15))
+        
+        # Save button
+        save_region_btn = ttk.Button(
+            region_row,
+            text="💾 Set Region",
+            command=self.save_region_selection,
+            style='Success.TButton'
+        )
+        save_region_btn.pack(side="left", padx=(0, 10))
+        
+        # Auto-detect button
+        auto_detect_btn = ttk.Button(
+            region_row,
+            text="🔍 Auto-Detect",
+            command=self.auto_detect_region,
+            style='Accent.TButton'
+        )
+        auto_detect_btn.pack(side="left")
+        
+        # Status display
+        self.region_status_var = tk.StringVar(value="✅ Default region: North America (temporary setting)")
+        self.region_status_label = tk.Label(
+            selection_frame,
+            textvariable=self.region_status_var,
+            bg='#2d2d30',
+            fg=self.colors['text_secondary'],
+            font=('Segoe UI', 10)
+        )
+        self.region_status_label.pack(anchor="w", pady=(15, 0))
+        
+    def save_region_selection(self):
+        """Save the selected region"""
+        try:
+            selected = self.region_combo.get()
+            # Extract region code from "Display Name (CODE)" format
+            region_code = selected.split('(')[-1].replace(')', '').lower()
+            
+            if region_config.set_region(region_code):
+                self.current_region_display.configure(
+                    text=f"{region_config.get_region_display_name()} ({region_code.upper()})"
+                )
+                self.region_status_var.set("✅ Region set for this session!")
+                self.log(f"🌍 Region changed to: {region_config.get_region_display_name()}", "success")
+                
+                # Update metadata fetcher region
+                if hasattr(self, 'metadata_fetcher'):
+                    self.metadata_fetcher.update_region(region_code)
+                    
+                # Update session monitor region
+                if hasattr(self, 'session_monitor'):
+                    self.session_monitor.update_region()
+                
+                # Refresh replay list with new region
+                try:
+                    self.refresh_replay_list()
+                    self.log("🔄 Refreshed replay list with new region", "info")
+                except Exception as refresh_error:
+                    self.log(f"⚠️ Could not refresh replay list: {refresh_error}", "warning")
+                    
+            else:
+                self.region_status_var.set("❌ Failed to save region")
+                
+        except Exception as e:
+            self.region_status_var.set(f"❌ Error: {e}")
+            
+    def auto_detect_region(self):
+        """Auto-detect region from VALORANT client"""
+        try:
+            self.region_status_var.set("🔍 Detecting region from VALORANT client...")
+            
+            # Check if metadata fetcher has the required credentials
+            if not hasattr(self.metadata_fetcher, 'port') or not self.metadata_fetcher.port:
+                self.region_status_var.set("❌ Cannot access VALORANT client. Ensure VALORANT is running.")
+                self.log("❌ Auto-detect failed: No port information available", "error")
+                return
+                
+            if not hasattr(self.metadata_fetcher, 'password') or not self.metadata_fetcher.password:
+                self.region_status_var.set("❌ Cannot access VALORANT client. Missing authentication.")
+                self.log("❌ Auto-detect failed: No password information available", "error")
+                return
+            
+            # Log the attempt for debugging
+            self.log(f"🔍 Attempting region detection using port {self.metadata_fetcher.port}", "info")
+            
+            detected_region = region_config.detect_region_from_client(
+                int(self.metadata_fetcher.port), 
+                self.metadata_fetcher.password
+            )
+            
+            if detected_region:
+                # Update combobox selection
+                for choice in self.region_combo['values']:
+                    if choice.endswith(f"({detected_region.upper()})"):
+                        self.region_combo.set(choice)
+                        self.save_region_selection()
+                        self.region_status_var.set("✅ Region auto-detected successfully!")
+                        self.log(f"✅ Auto-detected region: {detected_region}", "success")
+                        return
+                        
+                # Region detected but not in our list
+                self.region_status_var.set(f"❌ Detected region '{detected_region}' not supported")
+                self.log(f"❌ Unsupported region detected: {detected_region}", "error")
+            else:
+                self.region_status_var.set("❌ Could not detect region from client")
+                self.log("❌ Region detection returned None", "error")
+                
+        except ValueError as e:
+            self.region_status_var.set("❌ Invalid port number")
+            self.log(f"❌ Auto-detect failed: Invalid port - {e}", "error")
+        except Exception as e:
+            self.region_status_var.set(f"❌ Auto-detection error: {e}")
+            self.log(f"❌ Auto-detect failed: {e}", "error")
+            
     def setup_modern_selection_tab(self):
         """Setup modern file selection tab"""
         selection_frame = ttk.Frame(self.notebook)
