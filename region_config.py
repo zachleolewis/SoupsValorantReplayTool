@@ -101,14 +101,15 @@ class RegionConfig:
                 return name
         return "Unknown Region"
     
-    def detect_region_from_client(self, port: int, password: str) -> Optional[str]:
+    def detect_region_from_config_endpoint(self, port: int, password: str) -> Optional[str]:
         """
-        Detect region from VALORANT client using the local API
+        Detect region from VALORANT config endpoint using local authentication
         Returns region code if successful, None if failed
         """
         try:
             import requests
             import base64
+            import json
             import urllib3
             urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
             
@@ -117,46 +118,67 @@ class RegionConfig:
             auth_bytes = auth_string.encode('ascii')
             auth_header = base64.b64encode(auth_bytes).decode('ascii')
             
-            url = f"https://127.0.0.1:{port}/riotclient/region-locale"
             headers = {
-                'Authorization': f'Basic {auth_header}'
+                'Authorization': f'Basic {auth_header}',
+                'User-Agent': 'RiotClient/60.0.9.1234567.1234567 rso-auth (Windows;10;;Professional, x64)'
             }
             
-            response = requests.get(url, headers=headers, verify=False, timeout=10)
+            # Get entitlements token
+            entitlements_url = f"https://127.0.0.1:{port}/entitlements/v1/token"
+            response = requests.get(entitlements_url, headers=headers, verify=False, timeout=10)
+            if response.status_code != 200:
+                print(f"Failed to get entitlements: {response.status_code}")
+                return None
             
+            entitlements_data = response.json()
+            access_token = entitlements_data['accessToken']
+            entitlements_token = entitlements_data['token']
+            
+            # Get client version (optional, but good practice)
+            session_url = f"https://127.0.0.1:{port}/product-session/v1/external-sessions"
+            response = requests.get(session_url, headers=headers, verify=False, timeout=10)
+            client_version = "release-08.07-shipping-28-927049"  # fallback
             if response.status_code == 200:
-                data = response.json()
-                detected_region = data.get('region', '').lower()
-                
-                # Map detected region to our supported regions
-                if detected_region in [r[0] for r in self.AVAILABLE_REGIONS]:
-                    return detected_region
-                
-                # Try to map common variations
-                region_mappings = {
-                    'north_america': 'na',
-                    'latin_america': 'latam',
-                    'europe': 'eu',
-                    'asia_pacific': 'ap',
-                    'korea': 'kr',
-                    'brasil': 'br',
-                    'brazil': 'br'
+                session_data = response.json()
+                if 'valorant' in session_data:
+                    client_version = session_data['valorant']['version']
+            
+            # Platform info
+            platform_info = {
+                "platformType": "PC",
+                "platformOS": "Windows", 
+                "platformOSVersion": "10.0.19043.1.256.64bit",
+                "platformChipset": "Unknown"
+            }
+            platform_b64 = base64.b64encode(json.dumps(platform_info).encode()).decode()
+            
+            # Try different regions to find the correct one
+            regions_to_try = ['na', 'eu', 'ap', 'kr']
+            
+            for region in regions_to_try:
+                config_url = f"https://shared.{region}.a.pvp.net/v1/config/{region}"
+                config_headers = {
+                    'Authorization': f'Bearer {access_token}',
+                    'X-Riot-Entitlements-JWT': entitlements_token,
+                    'X-Riot-ClientVersion': client_version,
+                    'X-Riot-ClientPlatform': platform_b64,
+                    'User-Agent': 'RiotClient/60.0.9.1234567.1234567 rso-auth (Windows;10;;Professional, x64)'
                 }
                 
-                mapped_region = region_mappings.get(detected_region.replace('-', '_'))
-                if mapped_region:
-                    return mapped_region
-                    
-                print(f"❌ Unknown region detected from client: '{detected_region}'")
-            else:
-                print(f"❌ API request failed with status {response.status_code}")
-                
+                response = requests.get(config_url, headers=config_headers, verify=False, timeout=10)
+                if response.status_code == 200:
+                    # Successfully got config, this is the correct region
+                    return region
+            
+            print("Could not determine region from config endpoints")
+            return None
+            
         except requests.exceptions.ConnectionError as e:
-            print(f"❌ Connection failed: Could not connect to VALORANT client on port {port}")
+            print(f"Connection failed: Could not connect to VALORANT client on port {port}")
         except requests.exceptions.Timeout as e:
-            print(f"❌ Request timeout: VALORANT client not responding on port {port}")
+            print(f"Request timeout: VALORANT client not responding on port {port}")
         except Exception as e:
-            print(f"❌ Failed to detect region from client: {e}")
+            print(f"Failed to detect region from config endpoint: {e}")
         
         return None
     

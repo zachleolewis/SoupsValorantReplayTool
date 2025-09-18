@@ -8,12 +8,14 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 import time
+import os
 import sys
 from pathlib import Path
 from datetime import datetime
 from replay_file_manager import ReplayFileManager, SessionMonitor
 from replay_metadata import ReplayMetadataFetcher
 from region_config import region_config
+import tempfile
 
 # Install sv-ttk if not available
 try:
@@ -33,6 +35,16 @@ except ImportError:
 
 class ModernReplayInjectorGUI:
     def __init__(self):
+        # Check for existing instance
+        lock_file = os.path.join(tempfile.gettempdir(), 'soups_valorant_tool.lock')
+        if os.path.exists(lock_file):
+            messagebox.showerror("Already Running", "The VALORANT Replay Tool is already running!")
+            sys.exit(1)
+        else:
+            with open(lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            self.lock_file = lock_file
+        
         # Initialize main window with optimizations
         self.root = tk.Tk()
         self.root.title("Soup's Valorant Replay Tool")
@@ -113,6 +125,10 @@ class ModernReplayInjectorGUI:
         
         self.setup_modern_styles()
         self.setup_modern_ui()
+        
+        # Attempt to auto-detect region on startup
+        self.root.after(1000, self.attempt_startup_region_detection)  # Delay to allow UI to load
+        
         self.refresh_replay_list()
         
     def apply_theme_to_titlebar(self):
@@ -380,50 +396,33 @@ class ModernReplayInjectorGUI:
         
         selection_label = tk.Label(
             selection_frame,
-            text="🌎 Select Region:",
+            text="🔍 Auto-Detect Region:",
             bg='#2d2d30',
             fg=self.colors['text_primary'],
             font=('Segoe UI', 11, 'bold')
         )
         selection_label.pack(anchor="w", pady=(0, 10))
         
-        # Region dropdown
-        region_row = tk.Frame(selection_frame, bg='#2d2d30')
-        region_row.pack(fill="x")
-        
-        self.region_var = tk.StringVar(value=region_config.current_region)
-        
-        # Create region choices with display names
-        region_choices = [f"{name} ({code.upper()})" for code, name in region_config.AVAILABLE_REGIONS]
-        current_choice = f"{region_config.get_region_display_name()} ({region_config.current_region.upper()})"
-        
-        self.region_combo = ttk.Combobox(
-            region_row,
-            values=region_choices,
-            state="readonly",
-            font=('Segoe UI', 11),
-            width=25
-        )
-        self.region_combo.set(current_choice)
-        self.region_combo.pack(side="left", padx=(0, 15))
-        
-        # Save button
-        save_region_btn = ttk.Button(
-            region_row,
-            text="💾 Set Region",
-            command=self.save_region_selection,
-            style='Success.TButton'
-        )
-        save_region_btn.pack(side="left", padx=(0, 10))
-        
-        # Auto-detect button
+        # Auto-detect button (only option now)
         auto_detect_btn = ttk.Button(
-            region_row,
-            text="🔍 Auto-Detect",
+            selection_frame,
+            text="🔍 Detect Region from VALORANT",
             command=self.auto_detect_region,
             style='Accent.TButton'
         )
-        auto_detect_btn.pack(side="left")
+        auto_detect_btn.pack(anchor="w")
+        
+        # Instructions for auto-detection
+        detect_instruction = tk.Label(
+            selection_frame,
+            text="Click the button above to automatically detect your VALORANT region using your lockfile. Make sure VALORANT is running.",
+            bg='#2d2d30',
+            fg=self.colors['text_secondary'],
+            font=('Segoe UI', 10),
+            wraplength=700,
+            justify="left"
+        )
+        detect_instruction.pack(anchor="w", pady=(15, 0))
         
         # Status display
         self.region_status_var = tk.StringVar(value="✅ Default region: North America (temporary setting)")
@@ -472,52 +471,85 @@ class ModernReplayInjectorGUI:
             self.region_status_var.set(f"❌ Error: {e}")
             
     def auto_detect_region(self):
-        """Auto-detect region from VALORANT client"""
+        """Auto-detect region from VALORANT config endpoint using lockfile"""
         try:
-            self.region_status_var.set("🔍 Detecting region from VALORANT client...")
+            # Read lockfile
+            lockfile_path = r"C:\Users\zachl\AppData\Local\Riot Games\Riot Client\Config\lockfile"
             
-            # Check if metadata fetcher has the required credentials
-            if not hasattr(self.metadata_fetcher, 'port') or not self.metadata_fetcher.port:
-                self.region_status_var.set("❌ Cannot access VALORANT client. Ensure VALORANT is running.")
-                self.log("❌ Auto-detect failed: No port information available", "error")
-                return
-                
-            if not hasattr(self.metadata_fetcher, 'password') or not self.metadata_fetcher.password:
-                self.region_status_var.set("❌ Cannot access VALORANT client. Missing authentication.")
-                self.log("❌ Auto-detect failed: No password information available", "error")
+            if not os.path.exists(lockfile_path):
+                messagebox.showerror("Error", "VALORANT lockfile not found. Please make sure VALORANT is running.")
+                self.region_status_var.set("❌ VALORANT lockfile not found - please start VALORANT first")
                 return
             
-            # Log the attempt for debugging
-            self.log(f"🔍 Attempting region detection using port {self.metadata_fetcher.port}", "info")
+            with open(lockfile_path, 'r') as f:
+                lockfile_data = f.read().strip()
             
-            detected_region = region_config.detect_region_from_client(
-                int(self.metadata_fetcher.port), 
-                self.metadata_fetcher.password
-            )
+            # Parse lockfile (format: name:pid:port:password:protocol)
+            parts = lockfile_data.split(':')
+            if len(parts) != 5:
+                messagebox.showerror("Error", "Invalid lockfile format")
+                self.region_status_var.set("❌ Invalid lockfile format")
+                return
+            
+            port = int(parts[2])
+            password = parts[3]
+            
+            # Detect region using config endpoint
+            self.region_status_var.set("🔍 Detecting region from VALORANT config...")
+            self.root.update()
+            
+            detected_region = region_config.detect_region_from_config_endpoint(port, password)
             
             if detected_region:
-                # Update combobox selection
-                for choice in self.region_combo['values']:
-                    if choice.endswith(f"({detected_region.upper()})"):
-                        self.region_combo.set(choice)
-                        self.save_region_selection()
-                        self.region_status_var.set("✅ Region auto-detected successfully!")
-                        self.log(f"✅ Auto-detected region: {detected_region}", "success")
-                        return
-                        
-                # Region detected but not in our list
-                self.region_status_var.set(f"❌ Detected region '{detected_region}' not supported")
-                self.log(f"❌ Unsupported region detected: {detected_region}", "error")
+                # Set the detected region
+                if region_config.set_region(detected_region):
+                    self.current_region_display.config(
+                        text=f"{region_config.get_region_display_name()} ({detected_region.upper()})"
+                    )
+                    self.region_status_var.set(f"✅ Region detected and set to: {region_config.get_region_display_name()} ({detected_region.upper()})")
+                    
+                    # Show success message
+                    messagebox.showinfo("Success", 
+                        f"Region successfully detected!\n\n"
+                        f"Region: {region_config.get_region_display_name()}\n"
+                        f"Code: {detected_region.upper()}\n\n"
+                        f"This region will be used for all API calls and replay metadata loading.")
+                else:
+                    self.region_status_var.set("❌ Failed to set detected region")
+                    messagebox.showerror("Error", "Failed to set the detected region")
             else:
-                self.region_status_var.set("❌ Could not detect region from client")
-                self.log("❌ Region detection returned None", "error")
+                self.region_status_var.set("❌ Could not detect region from VALORANT")
+                messagebox.showerror("Detection Failed", 
+                    "Could not detect your VALORANT region.\n\n"
+                    "Please make sure:\n"
+                    "• VALORANT is running\n"
+                    "• You are logged into your account\n"
+                    "• Your firewall/antivirus isn't blocking connections")
                 
         except ValueError as e:
-            self.region_status_var.set("❌ Invalid port number")
-            self.log(f"❌ Auto-detect failed: Invalid port - {e}", "error")
+            messagebox.showerror("Error", f"Invalid port in lockfile: {e}")
+            self.region_status_var.set("❌ Invalid lockfile data")
         except Exception as e:
-            self.region_status_var.set(f"❌ Auto-detection error: {e}")
-            self.log(f"❌ Auto-detect failed: {e}", "error")
+            messagebox.showerror("Error", f"Failed to detect region: {e}")
+            self.region_status_var.set("❌ Region detection failed")
+            
+    def attempt_startup_region_detection(self):
+        """Attempt to detect region automatically on startup"""
+        try:
+            # Check if VALORANT lockfile exists
+            lockfile_path = r"C:\Users\zachl\AppData\Local\Riot Games\Riot Client\Config\lockfile"
+            
+            if os.path.exists(lockfile_path):
+                self.log("🔍 VALORANT detected - attempting automatic region detection...", "info")
+                # Try to detect region automatically
+                self.auto_detect_region()
+            else:
+                self.log("ℹ️ VALORANT not detected - region will remain as default (North America)", "info")
+                self.region_status_var.set("ℹ️ VALORANT not running - using default region (North America)")
+                
+        except Exception as e:
+            self.log(f"⚠️ Startup region detection failed: {e}", "warning")
+            self.region_status_var.set("⚠️ Could not auto-detect region on startup")
             
     def setup_modern_selection_tab(self):
         """Setup modern file selection tab"""
@@ -1503,6 +1535,9 @@ class ModernReplayInjectorGUI:
         # Handle window closing
         def on_closing():
             self.monitoring_active = False
+            # Clean up lock file
+            if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
+                os.remove(self.lock_file)
             self.root.destroy()
             
         self.root.protocol("WM_DELETE_WINDOW", on_closing)
