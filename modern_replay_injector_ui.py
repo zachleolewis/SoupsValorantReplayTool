@@ -474,7 +474,7 @@ class ModernReplayInjectorGUI:
         """Auto-detect region from VALORANT config endpoint using lockfile"""
         try:
             # Read lockfile
-            lockfile_path = r"C:\Users\zachl\AppData\Local\Riot Games\Riot Client\Config\lockfile"
+            lockfile_path = os.path.join(os.environ["LOCALAPPDATA"], "Riot Games", "Riot Client", "Config", "lockfile")
             
             if not os.path.exists(lockfile_path):
                 messagebox.showerror("Error", "VALORANT lockfile not found. Please make sure VALORANT is running.")
