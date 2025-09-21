@@ -473,10 +473,10 @@ class ModernReplayInjectorGUI:
     def auto_detect_region(self):
         """Auto-detect region from VALORANT config endpoint using lockfile"""
         try:
-            # Read lockfile
-            lockfile_path = r"C:\Users\zachl\AppData\Local\Riot Games\Riot Client\Config\lockfile"
+            # Read lockfile - use generic path that works on any system
+            lockfile_path = Path(os.environ['LOCALAPPDATA']) / 'Riot Games' / 'Riot Client' / 'Config' / 'lockfile'
             
-            if not os.path.exists(lockfile_path):
+            if not lockfile_path.exists():
                 messagebox.showerror("Error", "VALORANT lockfile not found. Please make sure VALORANT is running.")
                 self.region_status_var.set("❌ VALORANT lockfile not found - please start VALORANT first")
                 return
@@ -536,10 +536,10 @@ class ModernReplayInjectorGUI:
     def attempt_startup_region_detection(self):
         """Attempt to detect region automatically on startup"""
         try:
-            # Check if VALORANT lockfile exists
-            lockfile_path = r"C:\Users\zachl\AppData\Local\Riot Games\Riot Client\Config\lockfile"
+            # Check if VALORANT lockfile exists - use generic path
+            lockfile_path = Path(os.environ['LOCALAPPDATA']) / 'Riot Games' / 'Riot Client' / 'Config' / 'lockfile'
             
-            if os.path.exists(lockfile_path):
+            if lockfile_path.exists():
                 self.log("🔍 VALORANT detected - attempting automatic region detection...", "info")
                 # Try to detect region automatically
                 self.auto_detect_region()
