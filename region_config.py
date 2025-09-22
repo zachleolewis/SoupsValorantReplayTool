@@ -50,8 +50,8 @@ class RegionConfig:
     ]
     
     def __init__(self):
-        # Default to North America - no config file needed
-        self.current_region = 'na'
+        # No default region - must be detected or manually set
+        self.current_region = None
     
     def save_region(self, region: str) -> bool:
         """Save selected region to memory (no file persistence for .exe distribution)"""
@@ -65,11 +65,15 @@ class RegionConfig:
     def get_shard(self, region: Optional[str] = None) -> str:
         """Get shard for the given region"""
         region = region or self.current_region
+        if region is None:
+            raise ValueError("No region set - region must be detected or manually selected")
         return self.REGION_SHARD_MAP.get(region, 'na')
     
     def get_match_history_api_base(self, region: Optional[str] = None) -> str:
         """Get match history query API base URL for region"""
         region = region or self.current_region
+        if region is None:
+            raise ValueError("No region set - region must be detected or manually selected")
         shard = self.get_shard(region)
         endpoint = self.MATCH_HISTORY_QUERY_ENDPOINTS.get(shard, self.MATCH_HISTORY_QUERY_ENDPOINTS['na'])
         return f"https://{endpoint}"
@@ -77,12 +81,16 @@ class RegionConfig:
     def get_pd_api_base(self, region: Optional[str] = None) -> str:
         """Get Player Data (PD) API base URL for region"""
         region = region or self.current_region
+        if region is None:
+            raise ValueError("No region set - region must be detected or manually selected")
         shard = self.get_shard(region)
         return f"https://pd.{shard}.a.pvp.net"
     
     def get_glz_api_base(self, region: Optional[str] = None) -> str:
         """Get GLZ API base URL for region"""
         region = region or self.current_region
+        if region is None:
+            raise ValueError("No region set - region must be detected or manually selected")
         shard = self.get_shard(region)
         # GLZ endpoints use region-1 format
         return f"https://glz-{region}-1.{shard}.a.pvp.net"
@@ -90,20 +98,24 @@ class RegionConfig:
     def get_shared_api_base(self, region: Optional[str] = None) -> str:
         """Get Shared API base URL for region"""
         region = region or self.current_region
+        if region is None:
+            raise ValueError("No region set - region must be detected or manually selected")
         shard = self.get_shard(region)
         return f"https://shared.{shard}.a.pvp.net"
     
     def get_region_display_name(self, region: Optional[str] = None) -> str:
         """Get display name for region"""
         region = region or self.current_region
+        if region is None:
+            return "No Region Selected"
         for code, name in self.AVAILABLE_REGIONS:
             if code == region:
                 return name
         return "Unknown Region"
     
-    def detect_region_from_config_endpoint(self, port: int, password: str) -> Optional[str]:
+    def detect_region_from_session_endpoint(self, port: int, password: str) -> Optional[str]:
         """
-        Detect region from VALORANT config endpoint using local authentication
+        Detect region by trying session endpoint with different GLZ URLs
         Returns region code if successful, None if failed
         """
         try:
@@ -123,7 +135,7 @@ class RegionConfig:
                 'User-Agent': 'RiotClient/60.0.9.1234567.1234567 rso-auth (Windows;10;;Professional, x64)'
             }
             
-            # Get entitlements token
+            # Get entitlements token and player ID
             entitlements_url = f"https://127.0.0.1:{port}/entitlements/v1/token"
             response = requests.get(entitlements_url, headers=headers, verify=False, timeout=10)
             if response.status_code != 200:
@@ -133,8 +145,9 @@ class RegionConfig:
             entitlements_data = response.json()
             access_token = entitlements_data['accessToken']
             entitlements_token = entitlements_data['token']
+            player_id = entitlements_data['subject']
             
-            # Get client version (optional, but good practice)
+            # Get client version
             session_url = f"https://127.0.0.1:{port}/product-session/v1/external-sessions"
             response = requests.get(session_url, headers=headers, verify=False, timeout=10)
             client_version = "release-08.07-shipping-28-927049"  # fallback
@@ -152,35 +165,46 @@ class RegionConfig:
             }
             platform_b64 = base64.b64encode(json.dumps(platform_info).encode()).decode()
             
-            # Try different regions to find the correct one
-            regions_to_try = ['na', 'eu', 'ap', 'kr']
+            # Session headers for API calls
+            session_headers = {
+                'Authorization': f'Bearer {access_token}',
+                'X-Riot-Entitlements-JWT': entitlements_token,
+                'X-Riot-ClientVersion': client_version,
+                'X-Riot-ClientPlatform': platform_b64,
+                'User-Agent': 'RiotClient/60.0.9.1234567.1234567 rso-auth (Windows;10;;Professional, x64)'
+            }
+            
+            # Try all available regions to find the correct one
+            regions_to_try = [r[0] for r in self.AVAILABLE_REGIONS]
             
             for region in regions_to_try:
-                config_url = f"https://shared.{region}.a.pvp.net/v1/config/{region}"
-                config_headers = {
-                    'Authorization': f'Bearer {access_token}',
-                    'X-Riot-Entitlements-JWT': entitlements_token,
-                    'X-Riot-ClientVersion': client_version,
-                    'X-Riot-ClientPlatform': platform_b64,
-                    'User-Agent': 'RiotClient/60.0.9.1234567.1234567 rso-auth (Windows;10;;Professional, x64)'
-                }
-                
-                response = requests.get(config_url, headers=config_headers, verify=False, timeout=10)
-                if response.status_code == 200:
-                    # Successfully got config, this is the correct region
-                    return region
+                try:
+                    # Get GLZ endpoint for this region
+                    glz_base = self.get_glz_api_base(region)
+                    session_url = f"{glz_base}/session/v1/sessions/{player_id}"
+                    
+                    response = requests.get(session_url, headers=session_headers, verify=False, timeout=5)
+                    if response.status_code == 200:
+                        session_data = response.json()
+                        if session_data and 'loopState' in session_data:
+                            # Successfully got session data, this is the correct region
+                            return region
+                except requests.exceptions.RequestException:
+                    # Try next region
+                    continue
             
-            print("Could not determine region from config endpoints")
+            print("Could not determine region from session endpoints - tried all regions")
             return None
             
         except requests.exceptions.ConnectionError as e:
             print(f"Connection failed: Could not connect to VALORANT client on port {port}")
+            return None
         except requests.exceptions.Timeout as e:
             print(f"Request timeout: VALORANT client not responding on port {port}")
+            return None
         except Exception as e:
-            print(f"Failed to detect region from config endpoint: {e}")
-        
-        return None
+            print(f"Failed to detect region from session endpoint: {e}")
+            return None
     
     def set_region(self, region: str) -> bool:
         """Set current region and save to config"""

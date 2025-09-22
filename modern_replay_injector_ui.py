@@ -35,19 +35,11 @@ except ImportError:
 
 class ModernReplayInjectorGUI:
     def __init__(self):
-        # Check for existing instance
-        lock_file = os.path.join(tempfile.gettempdir(), 'soups_valorant_tool.lock')
-        if os.path.exists(lock_file):
-            messagebox.showerror("Already Running", "The VALORANT Replay Tool is already running!")
-            sys.exit(1)
-        else:
-            with open(lock_file, 'w') as f:
-                f.write(str(os.getpid()))
-            self.lock_file = lock_file
-        
+        # Check for existing instance more robustly
+        self._check_existing_instance()
+
         # Initialize main window with optimizations
         self.root = tk.Tk()
-        self.root.title("Soup's Valorant Replay Tool")
         self.root.geometry("1000x850")  # Increased height to accommodate confirmation section
         self.root.minsize(900, 800)  # Also increased minimum size
         
@@ -383,7 +375,7 @@ class ModernReplayInjectorGUI:
         
         self.current_region_display = tk.Label(
             current_region_frame,
-            text=f"{region_config.get_region_display_name()} ({region_config.current_region.upper()})",
+            text=region_config.get_region_display_name() + (f" ({region_config.current_region.upper()})" if region_config.current_region else ""),
             bg='#2d2d30',
             fg=self.colors['accent'],
             font=('Segoe UI', 12, 'bold')
@@ -498,7 +490,7 @@ class ModernReplayInjectorGUI:
             self.region_status_var.set("🔍 Detecting region from VALORANT config...")
             self.root.update()
             
-            detected_region = region_config.detect_region_from_config_endpoint(port, password)
+            detected_region = region_config.detect_region_from_session_endpoint(port, password)
             
             if detected_region:
                 # Set the detected region
@@ -507,6 +499,14 @@ class ModernReplayInjectorGUI:
                         text=f"{region_config.get_region_display_name()} ({detected_region.upper()})"
                     )
                     self.region_status_var.set(f"✅ Region detected and set to: {region_config.get_region_display_name()} ({detected_region.upper()})")
+                    
+                    # Update session monitor with new region
+                    if hasattr(self, 'session_monitor'):
+                        self.session_monitor.update_region()
+                    
+                    # Update metadata fetcher with new region
+                    if hasattr(self, 'metadata_fetcher'):
+                        self.metadata_fetcher.update_region(detected_region)
                     
                     # Show success message
                     messagebox.showinfo("Success", 
@@ -518,13 +518,16 @@ class ModernReplayInjectorGUI:
                     self.region_status_var.set("❌ Failed to set detected region")
                     messagebox.showerror("Error", "Failed to set the detected region")
             else:
-                self.region_status_var.set("❌ Could not detect region from VALORANT")
-                messagebox.showerror("Detection Failed", 
-                    "Could not detect your VALORANT region.\n\n"
-                    "Please make sure:\n"
-                    "• VALORANT is running\n"
-                    "• You are logged into your account\n"
-                    "• Your firewall/antivirus isn't blocking connections")
+                self.region_status_var.set("❌ Could not detect region from VALORANT - please select manually")
+                messagebox.showerror("Region Detection Failed", 
+                    "Could not automatically detect your VALORANT region.\n\n"
+                    "Please manually select your region from the dropdown above.\n\n"
+                    "Common regions:\n"
+                    "• North America: na\n"
+                    "• Europe: eu\n"
+                    "• Asia Pacific: ap\n"
+                    "• Korea: kr\n\n"
+                    "Make sure VALORANT is running and you are logged in.")
                 
         except ValueError as e:
             messagebox.showerror("Error", f"Invalid port in lockfile: {e}")
@@ -544,8 +547,8 @@ class ModernReplayInjectorGUI:
                 # Try to detect region automatically
                 self.auto_detect_region()
             else:
-                self.log("ℹ️ VALORANT not detected - region will remain as default (North America)", "info")
-                self.region_status_var.set("ℹ️ VALORANT not running - using default region (North America)")
+                self.log("ℹ️ VALORANT not detected - region must be selected manually", "info")
+                self.region_status_var.set("ℹ️ VALORANT not running - please select region manually")
                 
         except Exception as e:
             self.log(f"⚠️ Startup region detection failed: {e}", "warning")
@@ -1194,6 +1197,15 @@ class ModernReplayInjectorGUI:
             messagebox.showwarning("Not Ready", "Please select both host replay and injection file first!")
             return
         
+        # Check if region is selected
+        if region_config.current_region is None:
+            messagebox.showerror("Region Not Selected", 
+                               "Please select your VALORANT region first!\n\n"
+                               "Go to the 'Region Settings' tab and either:\n"
+                               "• Click 'Auto-Detect Region' (with VALORANT running)\n"
+                               "• Manually select your region from the dropdown")
+            return
+        
         if not self.session_monitor.get_session_info():
             messagebox.showerror("VALORANT Not Running", 
                                "VALORANT client not detected. Please start VALORANT first!")
@@ -1536,12 +1548,73 @@ class ModernReplayInjectorGUI:
         def on_closing():
             self.monitoring_active = False
             # Clean up lock file
-            if hasattr(self, 'lock_file') and os.path.exists(self.lock_file):
-                os.remove(self.lock_file)
+            if hasattr(self, 'lock_file') and self.lock_file and os.path.exists(self.lock_file):
+                try:
+                    os.remove(self.lock_file)
+                except:
+                    pass
             self.root.destroy()
             
         self.root.protocol("WM_DELETE_WINDOW", on_closing)
         self.root.mainloop()
+
+    def _check_existing_instance(self):
+        """Check for existing instance more robustly"""
+        lock_file = os.path.join(tempfile.gettempdir(), 'soups_valorant_tool.lock')
+
+        if os.path.exists(lock_file):
+            try:
+                with open(lock_file, 'r') as f:
+                    pid = int(f.read().strip())
+
+                # Check if the process is actually still running
+                try:
+                    import psutil
+                    if psutil.pid_exists(pid):
+                        process = psutil.Process(pid)
+                        # Check if it's actually our script
+                        if 'python' in process.name().lower():
+                            cmdline = process.cmdline()
+                            if any('modern_replay_injector_ui.py' in arg for arg in cmdline):
+                                result = messagebox.askyesno(
+                                    "Already Running",
+                                    "The VALORANT Replay Tool appears to be already running.\n\n"
+                                    "Do you want to start another instance anyway?\n\n"
+                                    "Note: Running multiple instances may cause conflicts."
+                                )
+                                if not result:
+                                    sys.exit(0)
+                except ImportError:
+                    # psutil not available, fall back to simple check
+                    result = messagebox.askyesno(
+                        "Already Running",
+                        "A lock file exists suggesting the tool is already running.\n\n"
+                        "Do you want to start another instance anyway?"
+                    )
+                    if not result:
+                        sys.exit(0)
+                except Exception:
+                    # If we can't check, just warn and continue
+                    messagebox.showwarning(
+                        "Warning",
+                        "Could not verify if another instance is running.\n"
+                        "Proceeding with caution..."
+                    )
+            except (ValueError, IOError):
+                # Invalid lock file, remove it
+                try:
+                    os.remove(lock_file)
+                except:
+                    pass
+
+        # Create/update lock file with current PID
+        try:
+            with open(lock_file, 'w') as f:
+                f.write(str(os.getpid()))
+            self.lock_file = lock_file
+        except:
+            # If we can't create lock file, just continue
+            self.lock_file = None
 
 def main():
     """Main function"""

@@ -230,6 +230,17 @@ class ReplayMetadataFetcher:
     
     def get_replay_metadata(self, replay_filename: str) -> Dict[str, Any]:
         """Get metadata for a replay file"""
+        # Check if region is configured
+        if not self.region:
+            return {
+                'filename': replay_filename,
+                'map': 'No Region Set',
+                'mode': 'No Region Set', 
+                'agent': 'No Region Set',
+                'score': 'No Region Set',
+                'error': 'Please select a region first'
+            }
+        
         match_id = self.extract_match_id_from_filename(replay_filename)
         if not match_id:
             return {
@@ -487,7 +498,12 @@ def test_replay_summary():
     test_match_id = "e1fb7880-f892-40c6-9e39-5c3c97f69e77"  # Replace with actual match ID
     
     print(f"\nTesting replay summary for match ID: {test_match_id}")
-    print("API URL:", f"https://usw2.pp.sgp.pvp.net/match-history-query/v3/product/valorant/matchId/{test_match_id}/infoType/summary")
+    try:
+        api_base = region_config.get_match_history_api_base()
+        print("API URL:", f"{api_base}/match-history-query/v3/product/valorant/matchId/{test_match_id}/infoType/summary")
+    except ValueError as e:
+        print(f"Cannot test API - {e}")
+        return
     
     summary = fetcher.get_replay_summary(test_match_id)
     if summary:
@@ -503,7 +519,12 @@ def test_replay_summary():
     other_info_types = ['details', 'metadata', 'info']
     for info_type in other_info_types:
         print(f"\n--- Testing infoType: {info_type} ---")
-        url = f"https://usw2.pp.sgp.pvp.net/match-history-query/v3/product/valorant/matchId/{test_match_id}/infoType/{info_type}"
+        try:
+            api_base = region_config.get_match_history_api_base()
+            url = f"{api_base}/match-history-query/v3/product/valorant/matchId/{test_match_id}/infoType/{info_type}"
+        except ValueError as e:
+            print(f"Cannot test {info_type} - {e}")
+            continue
         
         try:
             headers = {

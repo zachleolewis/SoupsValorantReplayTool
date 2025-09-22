@@ -153,7 +153,7 @@ class SessionMonitor:
     
     def update_region(self):
         """Update region-specific endpoints after region change"""
-        if self.credentials:
+        if self.credentials and region_config.current_region:
             self.credentials['game_api_base'] = region_config.get_glz_api_base()
             print(f"Updated session monitor to use GLZ endpoint: {self.credentials['game_api_base']}")
     
@@ -202,7 +202,7 @@ class SessionMonitor:
             return {
                 'base_url': base_url,
                 'password': password,
-                'game_api_base': region_config.get_glz_api_base(),  # Use region-specific GLZ endpoint
+                'game_api_base': region_config.get_glz_api_base() if region_config.current_region else None,  # Use region-specific GLZ endpoint
                 'access_token': token_data['accessToken'],
                 'entitlements_token': token_data['token'],
                 'client_version': client_version,
@@ -216,7 +216,7 @@ class SessionMonitor:
     
     def get_session_info(self) -> Optional[Dict]:
         """Get current session information"""
-        if not self.credentials:
+        if not self.credentials or not self.credentials.get('game_api_base'):
             return None
             
         try:
