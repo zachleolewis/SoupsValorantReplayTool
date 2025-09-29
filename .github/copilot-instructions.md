@@ -24,7 +24,7 @@ lockfile_path = r"C:\Users\{username}\AppData\Local\Riot Games\Riot Client\Confi
 
 #### 2. Session State Monitoring
 ```python
-# Monitor VALORANT client state changes
+# Monitor VALORANT client state changes via session polling
 previous_state = 'MENUS'
 current_state = session.get('loopState')  # MENUS, REPLAY, etc.
 if previous_state == 'MENUS' and current_state == 'REPLAY':
@@ -36,7 +36,7 @@ if previous_state == 'MENUS' and current_state == 'REPLAY':
 # Backup original, copy injection file, restore after replay ends
 backup_success = self.file_manager.backup_file(host_path)
 shutil.copy2(injection_file, host_file)  # Temporary swap
-# Auto-restore when replay ends
+# Auto-restore when replay ends via session monitoring
 ```
 
 #### 4. Region-Aware API Calls
@@ -170,6 +170,41 @@ colors = {
 }
 ```
 
+### Platform Info for API Calls
+```python
+# Required platform info for VALORANT API authentication
+platform_json = {
+    "platformType": "PC",
+    "platformOS": "Windows",
+    "platformOSVersion": "10.0.19041.1.256.64bit",
+    "platformChipset": "Unknown"
+}
+platform_header = base64.b64encode(json.dumps(platform_json).encode()).decode()
+```
+
+### SSL Verification for Local APIs
+```python
+# Always disable SSL verification for local VALORANT API calls
+response = requests.get(url, auth=('riot', password), verify=False)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+```
+
+### Backup System with Timestamps
+```python
+# Timestamped backups prevent conflicts
+timestamp = int(time.time())
+backup_name = f"{replay_file.stem}_backup_{timestamp}.vrf"
+backup_path = self.backup_directory / backup_name
+shutil.copy2(replay_file, backup_path)
+```
+
+### Session Monitoring Callbacks
+```python
+# Register callbacks for session state changes
+self.session_monitor.add_callback('error', self.on_monitor_error)
+self.session_monitor.add_callback('state_change', self.on_state_change)
+```
+
 ## Dependencies & Requirements
 - **Python 3.8+** required
 - **Windows-only** (VALORANT is Windows-exclusive)
@@ -177,8 +212,18 @@ colors = {
 - **Internet connection** required for metadata fetching
 - **tkinter** (built-in), **requests**, **sv-ttk**, **pywinstyles**
 
+## Development Resources
+- **`archive/`** folder contains development history and alternative implementations
+- **`VALORANT_Replay_Research_Complete_Report.md`** - Comprehensive API research documentation
+- **`replay_backups/`** - Automatic backup storage for injected files
+- **`releases/`** - Versioned executable distributions
+
 ## Security Considerations
 - Uses VALORANT's official local APIs only
+- No account credentials stored or transmitted
+- Temporary file operations with automatic cleanup
+- Backup system prevents data loss
+- SSL verification disabled for local API calls (standard practice)
 - No account credentials stored or transmitted
 - Temporary file operations with automatic cleanup
 - Backup system prevents data loss
@@ -197,5 +242,6 @@ colors = {
 - UI code in main file with clear tab separation
 - File operations centralized in `replay_file_manager.py`
 - Build scripts separate from application code
-- Assets (PNG files) in root directory for PyInstaller bundling</content>
+- Assets (PNG files) in root directory for PyInstaller bundling
+- Archive folder contains development history and alternative implementations</content>
 <parameter name="filePath">c:\Users\zachl\OneDrive\Documents\GitHub\SoupsValorantReplayTool\.github\copilot-instructions.md

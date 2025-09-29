@@ -27,3 +27,6 @@ replay_backups/
 
 # Logs
 *.log
+
+# AI/automation instructions
+.github/copilot-instructions.md
