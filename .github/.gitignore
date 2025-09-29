@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# PyInstaller
+*.spec
+build/
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Archive folder (not for public release)
+archive/
+
+# User data
+replay_backups/
+*.vrf
+
+# Logs
+*.log
+
+# AI/automation instructions
+.github/copilot-instructions.md
